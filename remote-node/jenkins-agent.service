@@ -1,0 +1,39 @@
+[Unit]
+Description=Jenkins Remoting agent (CodeAlpha)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+EnvironmentFile=/etc/jenkins-agent/agent.env
+WorkingDirectory=@WORKDIR@
+ExecStart=@JAVA@ -Xmx512m -jar /etc/jenkins-agent/agent.jar \
+  -url ${JENKINS_URL} \
+  -name ${AGENT_NAME} \
+  -secret @/etc/jenkins-agent/secret \
+  -workDir ${WORKDIR} \
+  -webSocket
+Restart=always
+RestartSec=10
+
+# ---- Node isolation / hardening ----
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@WORKDIR@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+MemoryMax=2G
+TasksMax=1024
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,147 @@
+# =====================================================================
+# Jenkins Configuration as Code — CodeAlpha Task 2: Jenkins Remoting
+# Controller does NO builds (0 executors). All work goes to remote agents
+# that connect via Jenkins Remoting (inbound WebSocket or SSH).
+# =====================================================================
+jenkins:
+  systemMessage: "CodeAlpha DevOps Task 2 — Jenkins Remoting. Builds run only on remote agents; the controller is isolated."
+  numExecutors: 0          # node isolation: never run untrusted build code on the controller
+  mode: EXCLUSIVE
+  labelString: "controller"
+  slaveAgentPort: 50000    # TCP inbound port (WebSocket over 8080 is used by default)
+  markupFormatter: plainText
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_ID}"
+          name: "Administrator"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+        - id: "${JENKINS_DEV_ID:-developer}"
+          name: "Developer (least privilege)"
+          password: "${JENKINS_DEV_PASSWORD}"
+
+  authorizationStrategy:
+    globalMatrix:
+      entries:
+        - user:
+            name: "${JENKINS_ADMIN_ID}"
+            permissions:
+              - "Overall/Administer"
+        - user:
+            name: "${JENKINS_DEV_ID:-developer}"
+            permissions:
+              - "Overall/Read"
+              - "Job/Read"
+              - "Job/Build"
+              - "Job/Cancel"
+              - "Job/Workspace"
+              - "Agent/Connect"
+              - "Agent/Disconnect"
+
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: false
+
+  # Agent -> Controller access control (prevents a compromised agent from
+  # reading or writing files on the controller)
+  remotingSecurity:
+    enabled: true
+
+  nodes:
+    # ---- Inbound (agent-initiated) WebSocket agents running as containers ----
+    - permanent:
+        name: "agent-linux-amd64"
+        nodeDescription: "Inbound WebSocket agent · x86_64 container · isolated network ci-inbound"
+        labelString: "linux amd64 x86_64 inbound docker"
+        remoteFS: "/home/jenkins/agent"
+        numExecutors: 2
+        mode: EXCLUSIVE
+        retentionStrategy: "always"
+        launcher:
+          inbound:
+            webSocket: true
+            workDirSettings:
+              disabled: false
+              failIfWorkDirIsMissing: false
+              internalDir: "remoting"
+
+    - permanent:
+        name: "agent-linux-arm64"
+        nodeDescription: "Inbound WebSocket agent · aarch64 container (QEMU on x86 hosts, native on ARM hosts)"
+        labelString: "linux arm64 aarch64 inbound docker"
+        remoteFS: "/home/jenkins/agent"
+        numExecutors: 1
+        mode: EXCLUSIVE
+        retentionStrategy: "always"
+        launcher:
+          inbound:
+            webSocket: true
+            workDirSettings:
+              disabled: false
+              failIfWorkDirIsMissing: false
+              internalDir: "remoting"
+
+    # ---- Outbound (controller-initiated) SSH agent on a separate network ----
+    - permanent:
+        name: "agent-ssh-secure"
+        nodeDescription: "SSH-launched agent · separate network ci-secure · runs sensitive jobs only"
+        labelString: "linux amd64 x86_64 ssh secure-zone"
+        remoteFS: "/home/jenkins/agent"
+        numExecutors: 1
+        mode: EXCLUSIVE
+        retentionStrategy: "always"
+        launcher:
+          ssh:
+            host: "agent-ssh"
+            port: 22
+            credentialsId: "agent-ssh-key"
+            javaPath: "/opt/java/openjdk/bin/java"
+            launchTimeoutSeconds: 60
+            maxNumRetries: 10
+            retryWaitTime: 15
+            sshHostKeyVerificationStrategy:
+              manuallyTrustedKeyVerificationStrategy:
+                requireInitialManualTrust: false
+
+    # ---- A real remote machine (VM / bare metal / Raspberry Pi / Windows) ----
+    # Connect it with remote-node/install-agent.sh (Linux) or install-agent.ps1 (Windows)
+    - permanent:
+        name: "remote-vm-01"
+        nodeDescription: "Physical/virtual machine elsewhere on the network — connects with agent.jar over WebSocket"
+        labelString: "remote linux bare-metal"
+        remoteFS: "/var/lib/jenkins-agent"
+        numExecutors: 2
+        mode: EXCLUSIVE
+        retentionStrategy: "always"
+        launcher:
+          inbound:
+            webSocket: true
+            workDirSettings:
+              disabled: false
+              failIfWorkDirIsMissing: false
+              internalDir: "remoting"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM          # SYSTEM scope: usable for launching agents, never exposed to jobs
+              id: "agent-ssh-key"
+              username: "jenkins"
+              description: "Controller -> agent-ssh-secure launch key"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/run/secrets/agent_ssh_key}"
+
+unclassified:
+  location:
+    url: "${JENKINS_URL:-http://localhost:8080/}"
+    adminAddress: "${JENKINS_ADMIN_EMAIL:-admin@example.com}"
+  timestamper:
+    allPipelines: true
+
+jobs:
+  - file: /usr/share/jenkins/casc/jobs.groovy

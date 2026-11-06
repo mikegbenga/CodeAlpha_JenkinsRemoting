@@ -1,0 +1,13 @@
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-stage-view
+git
+ssh-slaves
+ssh-credentials
+credentials-binding
+matrix-auth
+timestamper
+ws-cleanup
+build-timeout
+prometheus

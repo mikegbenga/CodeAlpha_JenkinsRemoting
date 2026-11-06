@@ -1,0 +1,120 @@
+# CodeAlpha DevOps Task 2 — Jenkins Remoting lab
+#
+#   ./scripts/setup.sh          # one command: keys, .env, controller, agents
+#
+# Networks (node isolation):
+#   ci-inbound : controller <-> inbound WebSocket agents (amd64, arm64)
+#   ci-secure  : controller <-> SSH agent (secure zone)
+#   Agents in different zones cannot see each other; only the controller sits on both.
+name: codealpha-jenkins
+
+x-agent-hardening: &agent-hardening
+  restart: unless-stopped
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  deploy:
+    resources:
+      limits:
+        cpus: "1.0"
+        memory: 1g
+        pids: 512
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  jenkins:
+    build: ./controller
+    image: codealpha/jenkins-controller:lts
+    container_name: jenkins-controller
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      JENKINS_URL: ${JENKINS_URL:-http://localhost:8080/}
+    ports:
+      - "8080:8080"     # UI + WebSocket agent endpoint
+      - "50000:50000"   # TCP inbound agent port (optional; WebSocket is preferred)
+    volumes:
+      - jenkins_home:/var/jenkins_home
+    secrets:
+      - agent_ssh_key
+    networks: [ci-inbound, ci-secure]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/login >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  # ------------------------------------------------ inbound WebSocket agents
+  agent-amd64:
+    <<: *agent-hardening
+    image: jenkins/inbound-agent:latest-jdk17
+    container_name: agent-linux-amd64
+    profiles: [inbound]
+    platform: linux/amd64
+    environment:
+      JENKINS_URL: http://jenkins:8080
+      JENKINS_AGENT_NAME: agent-linux-amd64
+      JENKINS_SECRET: ${AGENT_AMD64_SECRET:?run scripts/fetch-agent-secrets.sh first}
+      JENKINS_WEB_SOCKET: "true"
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+    volumes:
+      - agent_amd64_work:/home/jenkins/agent
+    depends_on:
+      jenkins: { condition: service_healthy }
+    networks: [ci-inbound]
+
+  agent-arm64:
+    <<: *agent-hardening
+    image: jenkins/inbound-agent:latest-jdk17
+    container_name: agent-linux-arm64
+    profiles: [arm64]
+    platform: linux/arm64           # emulated with QEMU on x86 hosts (see docs), native on ARM hosts
+    environment:
+      JENKINS_URL: http://jenkins:8080
+      JENKINS_AGENT_NAME: agent-linux-arm64
+      JENKINS_SECRET: ${AGENT_ARM64_SECRET:?run scripts/fetch-agent-secrets.sh first}
+      JENKINS_WEB_SOCKET: "true"
+      JENKINS_AGENT_WORKDIR: /home/jenkins/agent
+    volumes:
+      - agent_arm64_work:/home/jenkins/agent
+    depends_on:
+      jenkins: { condition: service_healthy }
+    networks: [ci-inbound]
+
+  # ------------------------------------------------ SSH agent (secure zone)
+  agent-ssh:
+    image: jenkins/ssh-agent:latest-jdk17
+    container_name: agent-ssh-secure
+    hostname: agent-ssh
+    restart: unless-stopped
+    # sshd needs a few capabilities to switch users; everything else is dropped
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, SYS_CHROOT, AUDIT_WRITE, DAC_OVERRIDE, KILL]
+    deploy:
+      resources:
+        limits: { cpus: "1.0", memory: 1g, pids: 512 }
+    environment:
+      JENKINS_AGENT_SSH_PUBKEY: ${AGENT_SSH_PUBKEY:?run scripts/setup.sh first}
+    volumes:
+      - agent_ssh_work:/home/jenkins/agent
+    networks: [ci-secure]
+
+networks:
+  ci-inbound:
+    driver: bridge
+  ci-secure:
+    driver: bridge
+    internal: true    # secure zone has no route to the internet
+
+secrets:
+  agent_ssh_key:
+    file: ./secrets/agent_ssh_key
+
+volumes:
+  jenkins_home:
+  agent_amd64_work:
+  agent_arm64_work:
+  agent_ssh_work:
