@@ -305,4 +305,4 @@ Then `./scripts/status.sh` lists every node with its state, executors, architect
 - Labels are what make spreading the load practical.
 - Having the whole setup in code means I can tear it down and rebuild it in a few minutes.
 
-That's the end of this series. Thanks for reading, and thanks to [CodeAlpha](https://www.codealpha.tech) for the internship.
+Next up: the last project, a Java app built with Gradle. Thanks to [CodeAlpha](https://www.codealpha.tech) for the internship.
