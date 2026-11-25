@@ -18,7 +18,16 @@ JAR=$(mktemp)
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
 failed=0
 
-api() { curl -fsS -b "$JAR" -c "$JAR" -u "$ADMIN:$PASS" "$@"; }
+# Formats /computer/api/json as one line per node
+NODES_PY='
+import json, sys
+for c in json.load(sys.stdin)["computer"]:
+    arch = (c.get("monitorData") or {}).get("hudson.node_monitors.ArchitectureMonitor") or "-"
+    state = "offline" if c["offline"] else "online"
+    print("{:<20} {:<8} executors={:<2} {}".format(c["displayName"], state, c["numExecutors"], arch))
+'
+
+api() { curl -fsSg -b "$JAR" -c "$JAR" -u "$ADMIN:$PASS" "$@"; }
 crumb() {
   api "$URL/crumbIssuer/api/json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["crumbRequestField"]+": "+d["crumb"])'
 }
@@ -29,13 +38,7 @@ notice() { # title, multi-line message
 
 echo "== Waiting for agents: $NODES"
 for i in $(seq 1 90); do
-  status=$(api "$URL/computer/api/json?tree=computer[displayName,offline,numExecutors,monitorData[hudson.node_monitors.ArchitectureMonitor]]" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-for c in d["computer"]:
-    arch = (c.get("monitorData") or {}).get("hudson.node_monitors.ArchitectureMonitor") or "-"
-    print(f"{c[\"displayName\"]:<20} {\"offline\" if c[\"offline\"] else \"online\":<8} executors={c[\"numExecutors\"]:<2} {arch}")
-')
+  status=$(api "$URL/computer/api/json?tree=computer[displayName,offline,numExecutors,monitorData[hudson.node_monitors.ArchitectureMonitor]]" | python3 -c "$NODES_PY")
   missing=""
   for n in $NODES; do echo "$status" | grep -q "^$n .*online" || missing="$missing $n"; done
   [ -z "$missing" ] && break
@@ -60,7 +63,7 @@ for job in $JOBS; do
   done
   secs=$(echo "$info" | python3 -c 'import json,sys; print(round(json.load(sys.stdin)["duration"]/1000))')
   console=$(api "$path/lastBuild/consoleText")
-  key=$(echo "$console" | sed 's/^\[[0-9:-]*T[0-9:.]*Z\] //' | grep -E "Hello from|uname -m:|shard-[0-9]+ ->|^ *[0-9]+ (agent|remote)|PASS|FAIL|INFO|^Agent:|^Arch:|^OS:|^CPUs:|Running on|Finished:" | sort -u -s -k1,1 | head -40)
+  key=$(echo "$console" | sed 's/^\[[0-9:-]*T[0-9:.]*Z\] //' | grep -E "Hello from|uname -m:|shard-[0-9]+ ->|^ *[0-9]+ (agent|remote)|PASS|FAIL|INFO|^Agent:|^Arch:|^OS:|^CPUs:|Running on|Finished:" | awk '!seen[$0]++' | head -40)
   echo "$key"
   echo "Result: $result (${secs}s)"
   notice "$job: $result (${secs}s)" "$key"

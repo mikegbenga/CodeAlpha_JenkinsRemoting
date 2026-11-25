@@ -6,17 +6,17 @@ URL="${JENKINS_LOCAL_URL:-http://localhost:8080}"
 ADMIN=$(grep '^JENKINS_ADMIN_ID=' .env | cut -d= -f2)
 PASS=$(grep '^JENKINS_ADMIN_PASSWORD=' .env | cut -d= -f2)
 
-curl -fsS -u "$ADMIN:$PASS" \
+curl -fsSg -u "$ADMIN:$PASS" \
   "$URL/computer/api/json?tree=computer[displayName,offline,numExecutors,idle,assignedLabels[name],monitorData[*]]" |
 python3 -c '
 import json, sys
 d = json.load(sys.stdin)
-print(f"{\"NODE\":<22}{\"STATE\":<10}{\"EXEC\":<6}{\"ARCH\":<26}LABELS")
+print("{:<22}{:<10}{:<6}{:<26}{}".format("NODE", "STATE", "EXEC", "ARCH", "LABELS"))
 for c in d["computer"]:
     arch = (c.get("monitorData") or {}).get("hudson.node_monitors.ArchitectureMonitor") or "-"
     labels = " ".join(sorted(l["name"] for l in c["assignedLabels"] if l["name"] != c["displayName"]))
     state = "offline" if c["offline"] else ("idle" if c["idle"] else "busy")
-    print(f"{c[\"displayName\"]:<22}{state:<10}{c[\"numExecutors\"]:<6}{arch:<26}{labels}")
+    print("{:<22}{:<10}{:<6}{:<26}{}".format(c["displayName"], state, c["numExecutors"], arch, labels))
 '
 echo
 docker compose ps --format 'table {{.Name}}\t{{.Status}}\t{{.Networks}}' 2>/dev/null || true
