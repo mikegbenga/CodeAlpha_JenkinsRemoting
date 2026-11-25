@@ -2,6 +2,8 @@
 
 **CodeAlpha DevOps Internship · Task 2** — Michael Gbenga Abajemito (Student ID: CA/DF1/326280)
 
+[![lab-e2e](https://github.com/mikegbenga/CodeAlpha_JenkinsRemoting/actions/workflows/lab-e2e.yml/badge.svg)](https://github.com/mikegbenga/CodeAlpha_JenkinsRemoting/actions/workflows/lab-e2e.yml)
+
 A complete **Jenkins Remoting** lab, configured entirely as code. A Jenkins controller with **zero executors** hands
 every build to remote agents. They connect three ways: **inbound WebSocket**, **outbound SSH**, and a **real remote
 machine** running `agent.jar` as a hardened systemd service or Windows task. Builds run on **x86_64 and arm64**, load is
@@ -67,6 +69,36 @@ sudo JENKINS_URL=http://<controller-ip>:8080 AGENT_NAME=remote-vm-01 AGENT_SECRE
 ```
 Windows: `remote-node/install-agent.ps1`. The agent connects **out** over WebSocket, so the remote machine needs no
 open inbound ports. Put the controller behind HTTPS (a reverse proxy) for anything beyond a LAN.
+
+## Tested end to end on GitHub Actions
+
+[`.github/workflows/lab-e2e.yml`](.github/workflows/lab-e2e.yml) builds and starts the whole lab on a fresh GitHub runner
+with `scripts/setup.sh` (with QEMU for the arm64 agent), connects **the runner VM itself as `remote-vm-01`** using
+`remote-node/install-agent.sh`, then runs all four demo jobs through the REST API (`scripts/e2e-test.sh`).
+Results from the first fully green run:
+
+```
+Built-In Node        online   executors=0
+agent-linux-amd64    online   executors=2   Linux (amd64)
+agent-linux-arm64    online   executors=1
+agent-ssh-secure     online   executors=1   Linux (amd64)
+remote-vm-01         online   executors=2
+
+01-multi-arch-build: SUCCESS
+  Hello from agent-linux-amd64 | os.arch=amd64
+  Hello from agent-ssh-secure  | os.arch=amd64
+  Hello from agent-linux-arm64 | os.arch=aarch64
+02-load-distribution: SUCCESS   (6 shards → 2 amd64, 1 arm64, 1 ssh, 2 remote-vm-01)
+03-node-isolation-audit: SUCCESS (every PASS check passed on all three container agents)
+04-remote-machine-build: SUCCESS (ran on remote-vm-01, Ubuntu, x86_64)
+```
+
+The first four runs failed, and each one found a real bug that's now fixed: the installer wasn't executable in git,
+`curl` needed `-g` for Jenkins' `tree=` URLs, a Python f-string wasn't portable, and the controller (uid 1000 in its
+container) couldn't read a 600-mode SSH key owned by the host user.
+
+You can run the same test locally after `./scripts/setup.sh`: `./scripts/e2e-test.sh`
+(set `NODES`/`JOBS` to skip `remote-vm-01` if you haven't connected a remote machine).
 
 ## Demo jobs
 
