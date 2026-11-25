@@ -30,7 +30,10 @@ if [ ! -f secrets/agent_ssh_key ]; then
   ssh-keygen -t ed25519 -N '' -C 'jenkins-controller-launch-key' -f secrets/agent_ssh_key -q
   echo "generated secrets/agent_ssh_key (+ .pub)"
 fi
-chmod 600 secrets/agent_ssh_key
+# The controller reads this key as the "jenkins" user (uid 1000) inside its container, which is usually
+# not your host user. So the key file is world-readable, but the secrets/ folder is locked to you.
+chmod 700 secrets
+chmod 644 secrets/agent_ssh_key
 
 [ -f .env ] || cp .env.example .env
 grep -q '^JENKINS_ADMIN_PASSWORD=CHANGE_ME' .env && set_env JENKINS_ADMIN_PASSWORD "$(randpw)"

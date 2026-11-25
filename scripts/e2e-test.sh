@@ -48,7 +48,14 @@ done
 echo "$status"
 notice "Nodes" "$status"
 { echo "### Nodes"; echo '```'; echo "$status"; echo '```'; } >> "$SUMMARY"
-[ -n "$missing" ] && { echo "Agents never came online:$missing"; exit 1; }
+if [ -n "$missing" ]; then
+  echo "Agents never came online:$missing"
+  for n in $missing; do
+    echo "--- launch log of $n"
+    api "$URL/computer/$n/logText/progressiveText?start=0" | tail -40
+  done
+  exit 1
+fi
 
 for job in $JOBS; do
   path="$URL/job/codealpha-remoting/job/$job"
