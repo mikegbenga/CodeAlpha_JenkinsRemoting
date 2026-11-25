@@ -1,0 +1,53 @@
+# Spins up the whole Jenkins Remoting lab on a GitHub runner and runs every demo job.
+# The runner VM itself is connected as "remote-vm-01" with remote-node/install-agent.sh,
+# so the bare-metal agent path gets tested too.
+name: lab-e2e
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**/*.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Jenkins lab end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint (shellcheck, YAML)
+        run: |
+          pip install --quiet yamllint
+          shellcheck scripts/*.sh remote-node/*.sh
+          yamllint -d "{extends: relaxed, rules: {line-length: {max: 160}}}" controller/casc/jenkins.yaml docker-compose.yml
+
+      - name: Enable arm64 emulation (QEMU)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Start the lab (scripts/setup.sh)
+        run: ./scripts/setup.sh
+
+      - name: Connect this runner VM as remote-vm-01 (remote-node/install-agent.sh)
+        run: |
+          SECRET=$(./scripts/fetch-agent-secrets.sh remote-vm-01 | awk '{print $2}')
+          sudo JENKINS_URL=http://localhost:8080 AGENT_NAME=remote-vm-01 AGENT_SECRET="$SECRET" ./remote-node/install-agent.sh
+
+      - name: Run the four demo jobs (scripts/e2e-test.sh)
+        run: ./scripts/e2e-test.sh
+
+      - name: Node status
+        if: always()
+        run: ./scripts/status.sh || true
+
+      - name: Logs on failure
+        if: failure()
+        run: |
+          docker compose --profile inbound --profile arm64 logs --tail 150
+          sudo journalctl -u jenkins-agent --no-pager | tail -50 || true

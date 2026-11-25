@@ -92,7 +92,7 @@ services:
     restart: unless-stopped
     # sshd needs a few capabilities to switch users; everything else is dropped
     cap_drop: [ALL]
-    cap_add: [CHOWN, SETUID, SETGID, SYS_CHROOT, AUDIT_WRITE, DAC_OVERRIDE, KILL]
+    cap_add: [CHOWN, SETUID, SETGID, SYS_CHROOT, AUDIT_WRITE, DAC_OVERRIDE, FOWNER, KILL, NET_BIND_SERVICE]
     deploy:
       resources:
         limits: { cpus: "1.0", memory: 1g, pids: 512 }
